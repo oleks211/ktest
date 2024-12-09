@@ -1,6 +1,6 @@
 services:
   php8.3-fpm:
-    image: php:8.3-fpm
+    build: ./docker/php8.3-fpm
     container_name: php8.3-fpm
     ports:
       - "9000:9000"
@@ -9,3 +9,42 @@ services:
     restart: unless-stopped
     environment:
       PHP_MEMORY_LIMIT: 512M
+    networks:
+      - ktest-network
+
+  mysql:
+    image: mysql:8
+    container_name: mysql8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: my_database
+      MYSQL_USER: user
+      MYSQL_PASSWORD: userpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - ktest-network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx-container
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx:/etc/nginx/conf.d
+      - .:/var/www/html
+    depends_on:
+      - php8.3-fpm
+    networks:
+      - ktest-network
+    restart: unless-stopped
+
+networks:
+  ktest-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
