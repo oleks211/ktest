@@ -12,7 +12,7 @@ use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
 use Symfony\Component\Serializer\SerializerInterface;
 
-#[Route('/limits', name: 'limits_')]
+#[Route('/ut-limits', name: 'limits_')]
 class UserTransactionsLimitController extends AbstractController
 {
     private EntityManagerInterface $entityManager;
