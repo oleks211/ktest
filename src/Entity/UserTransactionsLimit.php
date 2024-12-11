@@ -1,10 +1,10 @@
 <?php
-
 namespace App\Entity;
 
 use App\Repository\UserTransactionsLimitRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Serializer\Annotation\Groups;
 
 #[ORM\Entity(repositoryClass: UserTransactionsLimitRepository::class)]
 class UserTransactionsLimit
@@ -12,22 +12,28 @@ class UserTransactionsLimit
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
+    #[Groups(['limit_read', 'limit_write'])]
     private ?int $id = null;
 
     #[ORM\OneToOne(inversedBy: 'userTransactionsLimit', cascade: ['persist', 'remove'])]
     #[ORM\JoinColumn(nullable: false)]
+    #[Groups(['limit_read', 'limit_write'])]
     private ?User $user = null;
 
     #[ORM\Column(type: Types::DECIMAL, precision: 10, scale: 2)]
+    #[Groups(['limit_read', 'limit_write'])]
     private ?string $daily_limit = null;
 
     #[ORM\Column(type: Types::DECIMAL, precision: 10, scale: 2)]
+    #[Groups(['limit_read', 'limit_write'])]
     private ?string $monthly_limit = null;
 
     #[ORM\Column]
+    #[Groups(['limit_read'])]
     private ?\DateTimeImmutable $created_at = null;
 
     #[ORM\Column(type: Types::DATETIME_MUTABLE)]
+    #[Groups(['limit_read', 'limit_write'])]
     private ?\DateTimeInterface $updated_at = null;
 
     public function getId(): ?int
