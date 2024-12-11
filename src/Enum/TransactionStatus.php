@@ -5,16 +5,16 @@ namespace App\Enum;
 enum TransactionStatus: int
 {
     private const SUCCESS_KEY = 'success';
-    private const ERROR_KEY = 'error';
+    private const FAILURE_KEY = 'failure';
 
-    case ERROR = 0;
+    case FAILURE = 0;
     case SUCCESS = 1;
 
     public static function fromString(string $status): self
     {
         return match (strtolower($status)) {
             self::SUCCESS_KEY => self::SUCCESS,
-            self::ERROR_KEY => self::ERROR,
+            self::FAILURE_KEY => self::FAILURE,
             default => throw new \InvalidArgumentException("Invalid status: {$status}"),
         };
     }
@@ -28,7 +28,7 @@ enum TransactionStatus: int
     {
         return match ($this) {
             self::SUCCESS => self::SUCCESS_KEY,
-            self::ERROR => self::ERROR_KEY,
+            self::FAILURE => self::FAILURE_KEY,
         };
     }
 }

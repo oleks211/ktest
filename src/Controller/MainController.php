@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\Transaction;
 use App\Entity\User;
 use App\Entity\UserTransactionsLimit;
+use App\Enum\TransactionStatus;
 use App\Repository\TransactionRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -20,50 +21,98 @@ class MainController extends AbstractController
     #[Route('/transactions', name: 'create_transaction', methods: ['POST'])]
     public function createTransaction(
         Request                $request,
-        SerializerInterface    $serializer,
-        ValidatorInterface     $validator,
         EntityManagerInterface $entityManager,
-        TransactionRepository  $transactionRepository
     ): JsonResponse
     {
         try {
-            $data = $request->getContent();
-            $transaction = $serializer->deserialize($data, Transaction::class, 'json');
+            $json = $request->getContent();
 
-            $errors = $validator->validate($transaction);
-            if (count($errors) > 0) {
-                return new JsonResponse(['errors' => (string)$errors], 400);
+            if (!json_validate($json)) {
+                throw new \RuntimeException('Invalid JSON');
             }
 
-            $successfulTransactions = $transactionRepository->findBy(['user' => $transaction->getUser(), 'status' => 'success']);
-            $usedLimit = array_reduce($successfulTransactions, function ($carry, $item) {
-                return $carry + (float)$item->getAmount();
-            }, 0);
+            $data = json_decode($json, true);
 
-            $limit = 1000.00; // TODO:
-            if (($usedLimit + (float)$transaction->getAmount()) > $limit) {
-                return $this->json([
-                    'error' => 'Transaction limit exceeded',
-                    'limit' => $limit,
-                    'used' => $usedLimit
-                ], 400);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new \RuntimeException('Invalid JSON');
             }
 
-            $entityManager->persist($transaction);
-            $entityManager->flush();
+            $requiredFields = ['uuid', 'user_id', 'amount', 'status', 'date'];
+            $diff = array_diff($requiredFields, array_keys($data));
+            if (count($diff) > 0) {
+                throw new \RuntimeException('Not enough params');
+            }
 
-            return $this->json([
-                'message' => 'Transaction created successfully',
-                'transaction_id' => $transaction->getId(),
-            ], 201); //TODO: статус уточнить
+            $user = $entityManager->getRepository(User::class)->find($data['user_id']);
+            if ($user === null) {
+                throw new \RuntimeException('User not found');
+            }
 
+            $userId = $data['user_id'];
+            $amount = $data['amount'];
+
+            $connection = $entityManager->getConnection();
+            $connection->beginTransaction();
+
+            try {
+                $sql = '
+                    SELECT daily_limit, monthly_limit
+                    FROM user_transactions_limit
+                    WHERE user_id = :userId
+                    FOR UPDATE
+                ';
+
+                $resultSet = $connection->executeQuery($sql, ['userId' => $userId]);
+                $limit = $resultSet->fetchAssociative();
+
+                if (!$limit) {
+                    throw new \RuntimeException('User limits not found.');
+                }
+
+                $sql = "
+                    SELECT
+                        SUM(IF(DATE(created_at) = CURDATE(), amount, 0)) AS daily_sum,
+                        SUM(amount) AS monthly_sum
+                    FROM transaction
+                    WHERE user_id = :userId AND status = 1 AND MONTH(created_at) = MONTH(CURDATE());
+                ";
+
+                $resultSet = $connection->executeQuery($sql, ['userId' => $userId]);
+                $sums = $resultSet->fetchAssociative();
+
+                $dailySum = $sums['daily_sum'] ?? 0;
+                $monthlySum = $sums['monthly_sum'] ?? 0;
+
+                if (bcadd($dailySum, $amount) > $limit['daily_limit']) {
+                    throw new \RuntimeException('Daily limit exceeded');
+                }
+
+                if (bcadd($monthlySum, $amount) > $limit['monthly_limit']) {
+                    throw new \RuntimeException('Monthly limit exceeded');
+                }
+
+                $transaction = new Transaction();
+                $transaction->setUser($entityManager->getReference(User::class, $userId));
+                $transaction->setAmount($amount);
+                $transaction->setStatus(TransactionStatus::fromString($data['status'])->toInt());
+                $transaction->setDate(new \DateTime($data['date']));
+                $transaction->setCreatedAt(new \DateTimeImmutable());
+
+                $entityManager->persist($transaction);
+                $entityManager->flush();
+
+                $connection->commit();
+
+                return new JsonResponse(['message' => 'Transaction created successfully.'], 201);
+            } catch (\Throwable $e) {
+                $connection->rollBack();
+                return new JsonResponse(['error' => $e->getMessage()], 400);
+            }
         } catch (\Throwable $e) {
             return $this->json([
                 'error' => $e->getMessage(),
             ], 400);
         }
-
-
     }
 
     #[Route('/limits/{userId}', name: 'get_limits', methods: ['GET'])]
