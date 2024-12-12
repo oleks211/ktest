@@ -32,13 +32,19 @@ To install and run the project, follow these steps:
     docker-compose exec php8.3-fpm php composer.phar install
     ```
 
-6. Run database migrations:
+6. Install PHP dependencies using Composer:
+
+    ```bash
+    docker-compose exec php8.3-fpm chmod -R 777 /var/www/html/var
+    ```
+
+7. Run database migrations:
 
     ```bash
     docker-compose exec php8.3-fpm php bin/console doctrine:migrations:migrate
     ```
 
-7. Access the application at [http://localhost:8080](http://localhost:8080)
+8. Access the application at [http://localhost:8080](http://localhost:8080)
 
 ## REQUESTS
 #### Create User Limits
