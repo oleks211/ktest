@@ -5,7 +5,6 @@ namespace App\Entity;
 use App\Repository\TransactionRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
-use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity(repositoryClass: TransactionRepository::class)]
 class Transaction
@@ -31,7 +30,7 @@ class Transaction
     #[ORM\Column]
     private ?\DateTimeImmutable $created_at = null;
 
-    #[ORM\Column(type: 'uuid')]
+    #[ORM\Column(length: 36)]
     private ?string $uuid = null;
 
     public function getId(): ?int

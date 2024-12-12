@@ -20,7 +20,7 @@ final class Version20241209200012 extends AbstractMigration
     public function up(Schema $schema): void
     {
         // this up() migration is auto-generated, please modify it to your needs
-        $this->addSql('ALTER TABLE transaction ADD uuid BINARY(16) NOT NULL AFTER status');
+        $this->addSql('ALTER TABLE transaction ADD uuid VARCHAR(36) NOT NULL AFTER status');
     }
 
     public function down(Schema $schema): void
