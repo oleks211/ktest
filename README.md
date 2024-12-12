@@ -39,3 +39,36 @@ To install and run the project, follow these steps:
     ```
 
 7. Access the application at [http://localhost:8080](http://localhost:8080)
+
+## REQUESTS
+#### Create User Limits
+```bash
+curl -X POST http://localhost:8080/ut-limits \
+-H "Content-Type: application/json" \
+-d '{
+    "user_id": 1,
+    "daily_limit": "5000.00",
+    "monthly_limit": "150000.00",
+    "created_at": "2024-12-10T00:00:00+00:00",
+    "updated_at": "2024-12-10T00:00:00+00:00"
+}'
+```
+
+#### View User Limits
+```bash
+curl -X GET http://localhost:8080/limits/1
+```
+
+#### Add Transaction
+```bash
+curl -X POST http://localhost:8080/transactions \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+-d '{
+    "uuid": "3d54185f-907e-4285-a56d-cc06bc6b99e5",
+    "user_id": 1,
+    "amount": 500.00,
+    "status": "success",
+    "date": "2024-12-11T12:00:00Z"
+}'
+```
