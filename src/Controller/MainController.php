@@ -6,6 +6,8 @@ use App\Entity\Transaction;
 use App\Entity\User;
 use App\Entity\UserTransactionsLimit;
 use App\Enum\TransactionStatus;
+use App\Exception\LimitExceededException;
+use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -14,19 +16,16 @@ use Symfony\Component\Routing\Attribute\Route;
 
 class MainController extends AbstractController
 {
-    #[Route('/limits/{userId}', name: 'get_limits', methods: ['GET'])]
-    public function getLimits(int $userId, EntityManagerInterface $entityManager): JsonResponse
+    #[Route('/limits/{user}', name: 'get_limits', methods: ['GET'])]
+    public function getLimits(?User $user): JsonResponse
     {
-        $user = $entityManager->getRepository(User::class)->find($userId);
-
         if (!$user) {
             return $this->json([
                 'error' => 'User not found',
             ], JsonResponse::HTTP_NOT_FOUND);
         }
 
-        $limits = $entityManager->getRepository(UserTransactionsLimit::class)->findOneBy(['user' => $user]);
-
+        $limits = $user->getUserTransactionsLimit();
         if (!$limits) {
             return $this->json([
                 'error' => 'Limits not found for this user',
@@ -36,8 +35,9 @@ class MainController extends AbstractController
         return $this->json([
             'daily_limit' => $limits->getDailyLimit(),
             'monthly_limit' => $limits->getMonthlyLimit(),
+            'created_at' => $limits->getCreatedAt()?->format('Y-m-d H:i:s'),
             'updated_at' => $limits->getUpdatedAt()?->format('Y-m-d H:i:s'),
-        ]);
+        ], JsonResponse::HTTP_OK);
     }
 
     #[Route('/transactions', name: 'create_transaction', methods: ['POST'])]
@@ -47,44 +47,64 @@ class MainController extends AbstractController
     ): JsonResponse
     {
         try {
-            $data = $this->parseJson($request->getContent());
+            $data = $this->parseJson($request);
+
+            $existingTransaction = $entityManager->getRepository(Transaction::class)
+                ->findOneBy(['uuid' => $data['uuid']]);
+
+            if ($existingTransaction !== null) {
+                return $this->json([
+                    'error' => 'Transaction with this UUID already exists',
+                ], JsonResponse::HTTP_CONFLICT);
+            }
 
             $user = $this->getUserById($entityManager, $data['user_id']);
             if ($user === null) {
-                throw new \RuntimeException('User not found');
+                return $this->json([
+                    'error' => 'User not found',
+                ], JsonResponse::HTTP_NOT_FOUND);
             }
-
-            $userId = $data['user_id'];
-            $amount = $data['amount'];
 
             $connection = $entityManager->getConnection();
             $connection->beginTransaction();
 
             try {
-                $limit = $this->getUserTransactionLimit($connection, $userId);
-                $sums = $this->getTransactionSums($connection, $userId);
+                $limit = $this->getUserTransactionLimit($connection, $user);
+                $sums = $this->getTransactionSums($connection, $user, $data);
 
-                $this->checkLimits($sums, $amount, $limit);
+                $this->checkLimits($sums, $data, $limit);
 
-                $this->createNewTransaction($entityManager, $user, $data, $amount);
+                $this->createNewTransaction($entityManager, $user, $data);
 
                 $connection->commit();
 
-                return new JsonResponse(['message' => 'Transaction created successfully.'], 201);
+                return new JsonResponse([
+                    'message' => 'Transaction created successfully.'
+                ], JsonResponse::HTTP_CREATED);
+            } catch (LimitExceededException $e) {
+                $connection->rollBack();
+
+                return new JsonResponse([
+                    'error' => $e->getMessage()
+                ], JsonResponse::HTTP_FORBIDDEN);
             } catch (\Throwable $e) {
                 $connection->rollBack();
 
-                return new JsonResponse(['error' => $e->getMessage()], 400);
+                return new JsonResponse([
+                    'error' => $e->getMessage()
+                ], JsonResponse::HTTP_INTERNAL_SERVER_ERROR);
             }
+
         } catch (\Throwable $e) {
             return $this->json([
                 'error' => $e->getMessage(),
-            ], 400);
+            ], JsonResponse::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
-    private function parseJson(string $json): array
+    private function parseJson(Request $request): array
     {
+        $json = $request->getContent();
         if (!json_validate($json)) {
             throw new \RuntimeException('Invalid JSON');
         }
@@ -95,6 +115,7 @@ class MainController extends AbstractController
             throw new \RuntimeException('Invalid JSON');
         }
 
+        // TODO: temporarily, it needs to be moved.
         $requiredFields = ['uuid', 'user_id', 'amount', 'status', 'date'];
         $diff = array_diff($requiredFields, array_keys($data));
         if (count($diff) > 0) {
@@ -109,7 +130,7 @@ class MainController extends AbstractController
         return $entityManager->getRepository(User::class)->find($userId);
     }
 
-    private function getUserTransactionLimit($connection, int $userId): array
+    private function getUserTransactionLimit(Connection $connection, User $user): array
     {
         $sql = '
             SELECT daily_limit, monthly_limit
@@ -117,36 +138,39 @@ class MainController extends AbstractController
             WHERE user_id = :userId
             FOR UPDATE
         ';
+        $resultSet = $connection->executeQuery($sql, ['userId' => $user->getId()]);
 
-        $resultSet = $connection->executeQuery($sql, ['userId' => $userId]);
         return $resultSet->fetchAssociative();
     }
 
-    private function getTransactionSums($connection, int $userId): array
+    private function getTransactionSums(Connection $connection, User $user, array $data): array
     {
-        $sql = '
+        $sql = "
             SELECT
-                SUM(IF(DATE(created_at) = CURDATE(), amount, 0)) AS daily_sum,
+                SUM(IF(date = DATE_FORMAT(:date, '%Y-%m-%d'), amount, 0)) AS daily_sum,
                 SUM(amount) AS monthly_sum
             FROM transaction
-            WHERE user_id = :userId AND status = 1 AND MONTH(created_at) = MONTH(CURDATE());
-        ';
-        $resultSet = $connection->executeQuery($sql, ['userId' => $userId]);
+            WHERE user_id = :userId AND status = 1 AND DATE_FORMAT(date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
+        ";
+        $resultSet = $connection->executeQuery($sql, [
+            'userId' => $user->getId(),
+            'date' => $data['date'],
+        ]);
 
         return $resultSet->fetchAssociative();
     }
 
-    private function checkLimits(array $sums, float $amount, array $limit): void
+    private function checkLimits(array $sums, array $data, array $limit): void
     {
         $dailySum = $sums['daily_sum'] ?? 0;
         $monthlySum = $sums['monthly_sum'] ?? 0;
 
-        if (bcadd($dailySum, $amount) > $limit['daily_limit']) {
-            throw new \RuntimeException('Daily limit exceeded');
+        if (bcadd($dailySum, $data['amount']) > $limit['daily_limit']) {
+            throw new LimitExceededException('Daily limit exceeded');
         }
 
-        if (bcadd($monthlySum, $amount) > $limit['monthly_limit']) {
-            throw new \RuntimeException('Monthly limit exceeded');
+        if (bcadd($monthlySum, $data['amount']) > $limit['monthly_limit']) {
+            throw new LimitExceededException('Monthly limit exceeded');
         }
     }
 
@@ -158,6 +182,7 @@ class MainController extends AbstractController
         $transaction->setUser($user);
         $transaction->setAmount($data['amount']);
         $transaction->setStatus($status);
+        $transaction->setUuid($data['uuid']);
         $transaction->setDate(new \DateTime($data['date']));
         $transaction->setCreatedAt(new \DateTimeImmutable());
 

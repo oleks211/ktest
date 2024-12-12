@@ -32,7 +32,7 @@ class Transaction
     private ?\DateTimeImmutable $created_at = null;
 
     #[ORM\Column(type: 'uuid')]
-    private ?Uuid $uuid = null;
+    private ?string $uuid = null;
 
     public function getId(): ?int
     {
@@ -99,12 +99,12 @@ class Transaction
         return $this;
     }
 
-    public function getUuid(): ?Uuid
+    public function getUuid(): ?string
     {
         return $this->uuid;
     }
 
-    public function setUuid(Uuid $uuid): static
+    public function setUuid(string $uuid): static
     {
         $this->uuid = $uuid;
 
