@@ -4,8 +4,8 @@ namespace App\Enum;
 
 enum TransactionStatus: int
 {
-    private const SUCCESS_KEY = 'success';
-    private const FAILURE_KEY = 'failure';
+    public const SUCCESS_KEY = 'success';
+    public const FAILURE_KEY = 'failure';
 
     case FAILURE = 0;
     case SUCCESS = 1;
