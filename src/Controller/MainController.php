@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\DTO\TransactionResponseDTO;
 use App\Service\TransactionService;
 use App\Service\UserService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -36,6 +37,9 @@ class MainController extends AbstractController
     {
         $data = $this->transactionService->parseJson($request);
 
-        return $this->transactionService->handleTransactionCreation($data);
+        $transaction = $this->transactionService->handleTransactionCreation($data);
+        $transactionDto = new TransactionResponseDTO($transaction);
+
+        return $this->json($transactionDto, JsonResponse::HTTP_CREATED);
     }
 }

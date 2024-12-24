@@ -10,8 +10,8 @@ use App\Enum\TransactionStatus;
 use App\Exception\LimitExceededException;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Throwable;
 
 class TransactionService
 {
@@ -21,9 +21,10 @@ class TransactionService
 
     public function __construct(
         EntityManagerInterface $entityManager,
-        Connection $connection,
-        UserService $userService
-    ) {
+        Connection             $connection,
+        UserService            $userService
+    )
+    {
         $this->entityManager = $entityManager;
         $this->connection = $connection;
         $this->userService = $userService;
@@ -52,7 +53,7 @@ class TransactionService
         return $data;
     }
 
-    public function handleTransactionCreation(array $data): JsonResponse
+    public function handleTransactionCreation(array $data): Transaction
     {
         $this->connection->beginTransaction();
 
@@ -63,12 +64,12 @@ class TransactionService
                 ->findOneBy(['uuid' => $data['uuid']]);
 
             if ($existingTransaction) {
-                return new JsonResponse(['error' => 'Transaction with this UUID already exists'], JsonResponse::HTTP_CONFLICT);
+                throw new \RuntimeException('Transaction with this UUID already exists');
             }
 
             $user = $this->userService->getUserById($data['user_id']);
             if (!$user) {
-                return new JsonResponse(['error' => 'User not found'], JsonResponse::HTTP_NOT_FOUND);
+                throw new \RuntimeException('User not found');
             }
 
             $limit = $this->getUserTransactionLimit($user);
@@ -76,16 +77,12 @@ class TransactionService
 
             $this->checkLimits($sums, $data, $limit);
 
-            $this->createNewTransaction($user, $data);
+            $transaction = $this->createNewTransaction($user, $data);
 
             $this->connection->commit();
 
-            return new JsonResponse(['message' => 'Transaction created successfully.'], JsonResponse::HTTP_CREATED);
-        } catch (LimitExceededException $e) {
-            $this->connection->rollBack();
-
-            return new JsonResponse(['error' => $e->getMessage()], JsonResponse::HTTP_FORBIDDEN);
-        } catch (\Throwable $e) {
+            return $transaction;
+        } catch (LimitExceededException | Throwable $e) {
             $this->connection->rollBack();
 
             throw $e;
@@ -132,7 +129,7 @@ class TransactionService
         }
     }
 
-    private function createNewTransaction(User $user, array $data): void
+    private function createNewTransaction(User $user, array $data): Transaction
     {
         $transaction = new Transaction();
         $transaction->setUser($user);
@@ -144,5 +141,7 @@ class TransactionService
 
         $this->entityManager->persist($transaction);
         $this->entityManager->flush();
+
+        return $transaction;
     }
 }
