@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\Transaction;
@@ -55,6 +57,7 @@ class TransactionService
         $this->connection->beginTransaction();
 
         try {
+            // TODO: внедрить Lock Component для конкурентного доступа
             $existingTransaction = $this->entityManager
                 ->getRepository(Transaction::class)
                 ->findOneBy(['uuid' => $data['uuid']]);
